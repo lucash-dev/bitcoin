@@ -448,10 +448,16 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction) {
         mtx.vout[i].scriptPubKey = CScript() << OP_1;
     }
 
+    // create a single CTransaction to be used in generating all signatures
+    CTransaction txToConst(mtx);
+
     // sign all inputs
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
-        bool hashSigned = SignSignature(keystore, scriptPubKey, mtx, i, 1000, sigHashes.at(i % sigHashes.size()));
-        assert(hashSigned);
+        TransactionSignatureCreator creator(&txToConst, i, 1000, sigHashes.at(i % sigHashes.size()));
+
+        SignatureData sigdata;
+        bool ret = ProduceSignature(keystore, creator, scriptPubKey, sigdata);
+        UpdateTransaction(mtx, i, sigdata);
     }
 
     CDataStream ssout(SER_NETWORK, PROTOCOL_VERSION);
