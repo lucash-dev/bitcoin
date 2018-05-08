@@ -14,6 +14,7 @@
 #include <version.h>
 
 #include <vector>
+#include <iostream>
 
 typedef uint256 ChainCode;
 
@@ -191,6 +192,100 @@ uint256 SerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL
 }
 
 unsigned int MurmurHash3(unsigned int nHashSeed, const std::vector<unsigned char>& vDataToHash);
+
+class SerializedHashKey {
+private:
+  std::vector<unsigned char> buffer;
+
+  int nType;
+  int nVersion;
+
+  int murmur3;
+
+public:
+
+  int GetType() const { return nType; }
+  int GetVersion() const { return nVersion; }
+
+  uint256 hash;
+
+  SerializedHashKey() {}
+
+  SerializedHashKey(int nTypeIn, int nVersionIn) : nType(nTypeIn), nVersion(nVersionIn) {}
+
+  void write(const char *pch, size_t size) {
+      buffer.insert(buffer.end(), pch, pch + size);
+      murmur3 = MurmurHash3(0xabcd, buffer);
+  }
+
+  template<typename T>
+  SerializedHashKey& operator<<(const T& obj) {
+      // Serialize to this stream
+      ::Serialize(*this, obj);
+      return (*this);
+  }
+
+  bool operator ==(const SerializedHashKey &b) const {
+    return this->nType == b.nType && this->nVersion == b.nVersion && murmur3 == b.murmur3 && this->buffer == b.buffer;
+  }
+
+  SerializedHashKey& operator =(const SerializedHashKey &b) {
+    buffer = b.buffer;
+    nVersion = b.nVersion;
+    nType = b.nType;
+    hash = b.hash;
+    murmur3 = b.murmur3;
+    return *this;
+  }
+
+  std::size_t cacheHash() {
+    using std::size_t;
+    using std::hash;
+    using std::string;
+
+    return ((murmur3
+             ^ (hash<int>()(nType) << 1)) >> 1)
+             ^ (hash<int>()(nVersion) << 1);
+  }
+};
+
+std::vector<SerializedHashKey> hashCache(4096);
+uint32_t cache_hit_count = 0;
+uint32_t cache_miss_count = 0;
+
+template<typename T>
+uint256 CachedSerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL_VERSION)
+{
+
+  SerializedHashKey key(nType, nVersion);
+  key << obj;
+  size_t cacheHash(key.cacheHash());
+
+  size_t i = cacheHash % hashCache.size();
+  if (key == hashCache[i]) {
+    cache_hit_count++;
+    if (cache_hit_count % 100 == 0) {
+      std::cout << "--CachedSerializeHash-- Cache hits: " << cache_hit_count
+        << " -- Cache misses: " << cache_miss_count << " -- ratio: "
+        << (100.0 * cache_hit_count / (0.0 + cache_hit_count + cache_miss_count)) << "%" << std::endl;
+    }
+    return hashCache[i].hash;
+  }
+
+  cache_miss_count++;
+
+  CHashWriter ss(nType, nVersion);
+  ss << obj;
+  uint256 hash(ss.GetHash());
+
+  key.hash = hash;
+  hashCache[i] = key;
+
+  return hash;
+
+  //TODO: thread-safety?
+}
+
 
 void BIP32Hash(const ChainCode &chainCode, unsigned int nChild, unsigned char header, const unsigned char data[32], unsigned char output[64]);
 
