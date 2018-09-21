@@ -226,6 +226,10 @@ public:
         }
         return false;
     }
+
+    const T& GetConcrete() const {
+       return *static_cast<const T*>(this);
+    }
 };
 
 struct CMutableTransaction;
